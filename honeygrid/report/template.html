@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HoneyGrid Attacker Report — {{ generated_at }}</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e;
+    --red: #f85149; --orange: #d29922; --yellow: #e3b341;
+    --cyan: #58a6ff; --green: #3fb950; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+  .page { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 28px; }
+  .header h1 { font-size: 22px; font-weight: 700; color: var(--cyan); }
+  .header .meta { text-align: right; color: var(--muted); font-size: 12px; line-height: 1.7; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; margin-bottom: 28px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; text-align: center; }
+  .card .num { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+  .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .card.critical .num { color: var(--red); }
+  .card.high .num { color: var(--orange); }
+  .card.total .num { color: var(--cyan); }
+  .card.cmd .num { color: var(--green); }
+  h2 { font-size: 15px; font-weight: 600; color: var(--cyan); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 16px; margin-top: 28px; }
+  /* Top lists side-by-side */
+  .top-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 8px; }
+  .top-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .top-card h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .top-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(48,54,61,.5); font-size: 12px; }
+  .top-item:last-child { border-bottom: none; }
+  .top-item .val { font-family: monospace; color: var(--text); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+  .top-item .cnt { color: var(--muted); font-size: 11px; }
+  /* Session cards */
+  .session { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+  .session-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+  .session-header .ip { font-family: monospace; font-weight: 600; }
+  .session-body { padding: 12px 16px; }
+  .cmds { background: #0d1117; border-radius: 4px; padding: 10px 14px; font-family: monospace; font-size: 12px; max-height: 180px; overflow-y: auto; margin-top: 8px; }
+  .cmd-line { color: var(--green); margin-bottom: 2px; }
+  .cmd-line::before { content: "$ "; color: var(--muted); }
+  .ai-profile { background: #0d1117; border-left: 3px solid var(--purple); padding: 8px 12px; font-size: 12px; line-height: 1.6; margin-top: 8px; border-radius: 0 4px 4px 0; }
+  .sev { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .sev-critical { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid var(--red); }
+  .sev-high { background: rgba(210,153,34,.15); color: var(--orange); border: 1px solid var(--orange); }
+  .sev-medium { background: rgba(227,179,65,.15); color: var(--yellow); border: 1px solid var(--yellow); }
+  .sev-low { background: rgba(88,166,255,.15); color: var(--cyan); border: 1px solid var(--cyan); }
+  .tag { display: inline-block; background: rgba(48,54,61,.8); color: var(--muted); border-radius: 3px; font-size: 10px; padding: 1px 5px; margin: 1px; }
+  .mitre { display: inline-block; background: rgba(188,140,255,.1); color: var(--purple); border: 1px solid rgba(188,140,255,.3); border-radius: 3px; font-size: 10px; padding: 1px 6px; margin: 1px 2px; }
+  .proto-ssh { color: var(--green); font-size: 10px; font-weight: 700; }
+  .proto-http { color: var(--cyan); font-size: 10px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:hover td { background: var(--surface); }
+  .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border); text-align: center; font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <div>
+      <h1>HoneyGrid — Attacker Intelligence Report</h1>
+      <div style="margin-top:6px;color:var(--muted);font-size:13px;">
+        Honeypot session capture analysis
+      </div>
+    </div>
+    <div class="meta">
+      <div>Generated: {{ generated_at }}</div>
+      <div>Period: {{ period }}</div>
+    </div>
+  </div>
+
+  <!-- Summary cards -->
+  <div class="cards">
+    <div class="card total"><div class="num">{{ stats.total_sessions }}</div><div class="label">Sessions</div></div>
+    <div class="card total"><div class="num">{{ stats.unique_ips }}</div><div class="label">Unique IPs</div></div>
+    <div class="card critical"><div class="num">{{ stats.critical_count }}</div><div class="label">Critical</div></div>
+    <div class="card high"><div class="num">{{ stats.high_count }}</div><div class="label">High</div></div>
+    <div class="card total"><div class="num">{{ stats.ssh_sessions }}</div><div class="label">SSH</div></div>
+    <div class="card total"><div class="num">{{ stats.http_sessions }}</div><div class="label">HTTP</div></div>
+    <div class="card cmd"><div class="num">{{ stats.total_auth_attempts }}</div><div class="label">Auth Attempts</div></div>
+    <div class="card cmd"><div class="num">{{ stats.total_commands }}</div><div class="label">Commands</div></div>
+  </div>
+
+  <!-- Top lists -->
+  <h2>Top Attack Patterns</h2>
+  <div class="top-grid">
+    {% if stats.top_usernames %}
+    <div class="top-card">
+      <h3>Top Usernames Tried</h3>
+      {% for val, cnt in stats.top_usernames %}
+      <div class="top-item"><span class="val">{{ val }}</span><span class="cnt">{{ cnt }}x</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if stats.top_passwords %}
+    <div class="top-card">
+      <h3>Top Passwords Tried</h3>
+      {% for val, cnt in stats.top_passwords %}
+      <div class="top-item"><span class="val">{{ val }}</span><span class="cnt">{{ cnt }}x</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if stats.top_commands %}
+    <div class="top-card">
+      <h3>Top SSH Commands</h3>
+      {% for val, cnt in stats.top_commands %}
+      <div class="top-item"><span class="val">{{ val }}</span><span class="cnt">{{ cnt }}x</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if stats.top_paths %}
+    <div class="top-card">
+      <h3>Top HTTP Paths</h3>
+      {% for val, cnt in stats.top_paths %}
+      <div class="top-item"><span class="val">{{ val }}</span><span class="cnt">{{ cnt }}x</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if stats.top_ips %}
+    <div class="top-card">
+      <h3>Top Attacker IPs</h3>
+      {% for val, cnt in stats.top_ips %}
+      <div class="top-item"><span class="val">{{ val }}</span><span class="cnt">{{ cnt }} sessions</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if stats.top_countries %}
+    <div class="top-card">
+      <h3>Top Countries</h3>
+      {% for val, cnt in stats.top_countries %}
+      <div class="top-item"><span class="val">{{ val }}</span><span class="cnt">{{ cnt }}x</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Session detail cards (top 20 by threat level) -->
+  {% if sessions %}
+  <h2>Session Details ({{ sessions|length }} shown)</h2>
+  {% for s in sessions %}
+  <div class="session">
+    <div class="session-header">
+      <div>
+        <span class="ip">{{ s.source_ip }}</span>
+        <span style="margin-left:12px;">
+          {% if s.protocol == 'ssh' %}<span class="proto-ssh">SSH</span>{% else %}<span class="proto-http">HTTP</span>{% endif %}
+        </span>
+        <span style="margin-left:8px;font-size:12px;color:var(--muted);">{{ s.started_at }}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <span class="sev sev-{{ s.threat_level }}">{{ s.threat_level }}</span>
+        <span style="color:var(--muted);font-size:11px;">{{ s.duration_seconds|round(0)|int }}s</span>
+      </div>
+    </div>
+    <div class="session-body">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">
+        Auth attempts: {{ s.auth_attempts|length }} &bull;
+        Commands: {{ s.commands|length }} &bull;
+        HTTP requests: {{ s.http_requests|length }}
+        {% if s.country %}&bull; {{ s.country }}{% endif %}
+      </div>
+      {% if s.tags %}
+      <div style="margin-bottom:6px;">{% for t in s.tags %}<span class="tag">{{ t }}</span>{% endfor %}</div>
+      {% endif %}
+      {% if s.mitre_techniques %}
+      <div style="margin-bottom:6px;">{% for t in s.mitre_techniques %}<span class="mitre">{{ t }}</span>{% endfor %}</div>
+      {% endif %}
+      {% if s.commands %}
+      <div class="cmds">
+        {% for c in s.commands[:20] %}<div class="cmd-line">{{ c.command }}</div>{% endfor %}
+        {% if s.commands|length > 20 %}<div style="color:var(--muted);font-size:11px;">...{{ s.commands|length - 20 }} more commands</div>{% endif %}
+      </div>
+      {% endif %}
+      {% if s.ai_profile %}
+      <div class="ai-profile">{{ s.ai_profile }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Full session table -->
+  <h2>All Sessions</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Protocol</th><th>Source IP</th><th>Threat</th>
+        <th>Auth</th><th>Cmds</th><th>Reqs</th><th>Duration</th>
+        <th>Country</th><th>Tags</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in all_sessions %}
+    <tr>
+      <td style="font-family:monospace;color:var(--muted);">{{ s.id }}</td>
+      <td>{% if s.protocol == 'ssh' %}<span class="proto-ssh">SSH</span>{% else %}<span class="proto-http">HTTP</span>{% endif %}</td>
+      <td style="font-family:monospace;">{{ s.source_ip }}</td>
+      <td><span class="sev sev-{{ s.threat_level }}">{{ s.threat_level }}</span></td>
+      <td style="text-align:center;">{{ s.auth_attempts|length }}</td>
+      <td style="text-align:center;">{{ s.commands|length }}</td>
+      <td style="text-align:center;">{{ s.http_requests|length }}</td>
+      <td style="color:var(--muted);">{{ s.duration_seconds|round(1) }}s</td>
+      <td style="color:var(--muted);">{{ s.country or '-' }}</td>
+      <td>{% for t in s.tags[:3] %}<span class="tag">{{ t }}</span>{% endfor %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    HoneyGrid v0.1.0 &bull; Powered by Gemini AI &bull;
+    Copyright &copy; 2025 Desarrollado desde Las Brenas con amor por @jmsDev All rights reserved
+  </div>
+</div>
+</body>
+</html>

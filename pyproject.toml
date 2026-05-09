@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "honeygrid"
+version = "0.1.0"
+description = "D-03 — HoneyGrid: SSH + HTTP honeypot with attacker session capture and AI analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "asyncssh>=2.14",
+    "aiohttp>=3.9",
+    "aiofiles>=23.2",
+    "typer>=0.12",
+    "rich>=13.0",
+    "jinja2>=3.1",
+    "python-dotenv>=1.0",
+    "google-generativeai>=0.7",
+    "geoip2>=4.7",
+]
+
+[project.scripts]
+honeygrid = "honeygrid.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["honeygrid*"]

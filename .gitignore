@@ -1,0 +1,6 @@
+*.pyc
+__pycache__/
+*.egg-info/
+honeygrid_*.json
+honeygrid_ssh_host_key
+demo-report.html
