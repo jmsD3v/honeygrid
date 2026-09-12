@@ -1,5 +1,7 @@
 # HoneyGrid
 
+![banner](docs/banner.svg)
+
 Honeypot concurrente (D-03) que expone un servidor SSH y un servidor HTTP falsos para capturar en vivo credenciales, comandos y requests de quien intente entrar, y perfila cada sesión con IA (Claude, Gemini u OpenAI, la que tengas configurada).
 
 ## Qué hace
