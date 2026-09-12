@@ -94,6 +94,10 @@ if ASYNCSSH_AVAILABLE:
             self._session = session
 
         def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
+            peer = conn.get_extra_info("peername")
+            if peer:
+                self._session.source_ip = str(peer[0])
+                self._session.source_port = int(peer[1])
             self._session.client_version = str(conn.get_extra_info("client_version", ""))
             log.info(
                 "SSH connection from %s:%d (client: %s)",
@@ -104,7 +108,13 @@ if ASYNCSSH_AVAILABLE:
         def connection_lost(self, exc: Exception | None) -> None:
             pass
 
-        def password_auth_requested(self, username: str, password: str) -> bool:
+        def password_auth_supported(self) -> bool:
+            return True
+
+        def public_key_auth_supported(self) -> bool:
+            return True
+
+        def validate_password(self, username: str, password: str) -> bool:
             attempt = AuthAttempt(
                 username=username,
                 password=password,
@@ -115,7 +125,7 @@ if ASYNCSSH_AVAILABLE:
             log.info("SSH auth: %s / %s from %s", username, password, self._session.source_ip)
             return True             # Accept all credentials
 
-        def public_key_auth_requested(
+        def validate_public_key(
             self, username: str, public_key: asyncssh.SSHKey
         ) -> bool:
             attempt = AuthAttempt(
@@ -126,6 +136,9 @@ if ASYNCSSH_AVAILABLE:
             )
             self._session.auth_attempts.append(attempt)
             return True
+
+        def session_requested(self) -> "_HoneySSHSession":
+            return _HoneySSHSession(self._store, self._session, asyncio.get_event_loop())
 
 
     class _HoneySSHSession(asyncssh.SSHServerSession):
@@ -208,46 +221,35 @@ if ASYNCSSH_AVAILABLE:
             )
 
 
-async def start_ssh_honeypot(
-    host: str,
-    port: int,
-    store: "SessionStore",
-    server_key_path: str = "honeygrid_ssh_host_key",
-) -> asyncssh.SSHAcceptor:
-    """Start the async SSH honeypot server."""
-    if not ASYNCSSH_AVAILABLE:
-        raise RuntimeError("asyncssh not installed. Run: pip install asyncssh")
+    async def start_ssh_honeypot(
+        host: str,
+        port: int,
+        store: "SessionStore",
+        server_key_path: str = "honeygrid_ssh_host_key",
+    ) -> asyncssh.SSHAcceptor:
+        """Start the async SSH honeypot server."""
+        # Generate host key if it doesn't exist
+        try:
+            host_key = asyncssh.read_private_key(server_key_path)
+        except (FileNotFoundError, asyncssh.KeyImportError):
+            host_key = asyncssh.generate_private_key("ssh-rsa", key_size=2048)
+            host_key.write_private_key(server_key_path)
 
-    # Generate host key if it doesn't exist
-    key_path_obj = asyncssh.import_private_key if False else None
-    try:
-        host_key = asyncssh.read_private_key(server_key_path)
-    except (FileNotFoundError, asyncssh.KeyImportError):
-        host_key = asyncssh.generate_private_key("ssh-rsa", key_size=2048)
-        host_key.write_private_key(server_key_path)
+        def create_server() -> _HoneySSHServer:
+            session = AttackerSession(protocol=Protocol.SSH)
+            return _HoneySSHServer(store, session)
 
-    loop = asyncio.get_event_loop()
+        server = await asyncssh.create_server(
+            create_server,
+            host=host,
+            port=port,
+            server_host_keys=[host_key],
+            allow_pty=True,
+            line_editor=False,
+        )
 
-    def create_server() -> _HoneySSHServer:
-        session = AttackerSession(protocol=Protocol.SSH)
-        return _HoneySSHServer(store, session)
-
-    def create_session(server_obj: _HoneySSHServer) -> _HoneySSHSession:
-        return _HoneySSHSession(store, server_obj._session, loop)
-
-    server = await asyncssh.create_server(
-        create_server,
-        host=host,
-        port=port,
-        server_host_keys=[host_key],
-        process_factory=None,
-        session_factory=create_session,
-        allow_pty=True,
-        line_editor=False,
-    )
-
-    log.info("SSH honeypot listening on %s:%d", host, port)
-    return server
+        log.info("SSH honeypot listening on %s:%d", host, port)
+        return server
 
 else:
     async def start_ssh_honeypot(*args, **kwargs):  # type: ignore

@@ -1,232 +1,102 @@
-# 🍯 HoneyGrid — SSH/HTTP Honeypot
+# HoneyGrid
 
-<div align="center">
+Honeypot concurrente (D-03) que expone un servidor SSH y un servidor HTTP falsos para capturar en vivo credenciales, comandos y requests de quien intente entrar, y perfila cada sesión con Gemini.
 
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![SSH](https://img.shields.io/badge/SSH-Honeypot-6a0dad?style=for-the-badge)
-![HTTP](https://img.shields.io/badge/HTTP-Honeypot-0077b6?style=for-the-badge)
-![Gemini](https://img.shields.io/badge/Gemini_AI-Free_Tier-4285F4?style=for-the-badge&logo=google&logoColor=white)
-![Portfolio](https://img.shields.io/badge/Portfolio-D--03_Defensive-0077b6?style=for-the-badge)
+## Qué hace
 
-**Concurrent SSH and HTTP honeypot with fake filesystem, attacker session recording, and AI threat profiling**
+HoneyGrid levanta dos servicios señuelo con `asyncio`: un servidor SSH (vía `asyncssh`) que acepta **cualquier** usuario/contraseña, presenta un prompt de Ubuntu 22.04 creíble y responde a los comandos típicos (`whoami`, `cat /etc/passwd`, `wget`, `crontab -l`, etc.) con salidas falsas pero plausibles sin ejecutar nada real; y un servidor HTTP (vía `aiohttp`) que simula nginx, expone rutas trampa (`/.env`, `/.git/config`, `/wp-login.php`, `/phpmyadmin`) y devuelve contenido falso creíble para mantener a scanners y bots interesados. Cada conexión se registra como una `AttackerSession` con credenciales probadas, comandos ejecutados o requests HTTP, se clasifica automáticamente por nivel de amenaza (patrones tipo `wget`+`chmod +x`, `/etc/shadow`, SQLi/XSS en URLs) y se etiquetan técnicas MITRE ATT&CK. Todo se persiste en un JSON local después de cada sesión. Si hay `GEMINI_API_KEY`, un perfilador de IA agrega un resumen del tipo de atacante (script kiddie / bot oportunista / atacante dirigido) y recomendaciones defensivas al generar el reporte HTML.
 
-*D-03 of 9 · Cybersecurity Portfolio by [@jmsDev](https://www.linkedin.com/in/jmsilva83)*
+## Características
 
-</div>
+- **Honeypot SSH real** (no simulado a medias): acepta cualquier credencial (password o pubkey), abre una sesión interactiva o modo `exec`, y responde ~25 comandos comunes de reconocimiento/post-explotación con salida falsa realista (`fake_fs.py`).
+- **Honeypot HTTP real**: responde como nginx/PHP, con rutas trampa que devuelven "secretos" falsos (`.env`, `.git/config`) y un formulario de login falso que registra cualquier credencial enviada.
+- **Clasificación de amenaza automática**: por patrones de comandos (SSH) y por paths/payloads (HTTP: SQLi, XSS, path traversal, RCE).
+- **Etiquetado MITRE ATT&CK** por sesión (T1110.001 brute force, T1105 download, T1003.008 credential harvesting, T1053.003 persistence, T1082 OS fingerprinting, etc.).
+- **Captura estructurada por sesión**: intentos de auth, comandos, requests HTTP, duración, IP/puerto de origen — todo en `honeygrid_sessions.json`.
+- **Perfilado con IA (Gemini)** al generar reportes: assessment del atacante + técnicas MITRE + 2 recomendaciones defensivas por sesión de alto riesgo.
+- **CLI de análisis offline**: `sessions` (tabla filtrable por protocolo/umbral de amenaza) y `stats` (top usuarios, passwords, comandos, paths, IPs) trabajan directamente sobre el JSON, sin necesidad de tener el honeypot corriendo.
+- **Modo demo**: inyecta 3 sesiones sintéticas (brute force + lateral movement, scanner HTTP, recon liviano) para probar reportes y CLI sin exponer nada a internet.
+- Los campos de geolocalización (`country`, `asn`, `city`) existen en el modelo de datos pero **no hay enriquecimiento GeoIP implementado todavía** — quedan en `null` salvo que se carguen a mano (p. ej. en el modo demo).
 
----
+## Requisitos
 
-## What it does
+- Python **3.11+** (probado en este repo con 3.14.6 sobre Windows).
+- **`GEMINI_API_KEY`** — opcional, solo para el perfilado con IA en `honeygrid report`. Sin ella, el reporte se genera igual, sin la sección de IA (usar `--no-ai` para saltarla explícitamente y ahorrar la llamada).
+- `HONEYGRID_LOG` — opcional, define el path de log por defecto si se instancia `SessionStore()` sin argumentos; en la práctica el flag `--log` de cada comando de la CLI siempre tiene prioridad.
+- Puertos: `run` por defecto usa 2222 (SSH) y 8080 (HTTP) — ambos no privilegiados, no requieren permisos de administrador ni root.
 
-HoneyGrid runs concurrent SSH and HTTP honeypots that lure attackers, accept any credentials, record every command and HTTP request, simulate a convincing Debian environment to maximize dwell time, and feed captured TTP chains to **Google Gemini** for threat actor profiling.
-
-```bash
-honeygrid run --ssh-port 2222 --http-port 8080
-honeygrid sessions
-honeygrid stats
-```
-
----
-
-## Features
-
-### SSH Honeypot
-- **Accepts all credentials** — every username/password combination succeeds
-- **Fake Debian 12 filesystem** — `ls`, `cat`, `ps`, `ifconfig`, `netstat`, `wget`, `curl` all respond realistically
-- **Full keystroke capture** — every command logged with timestamp and session context
-- **Threat classification** — automated TTP tagging (crypto mining, data exfil, persistence, etc.)
-- **Session timeline** — complete command history per attacker session
-
-### HTTP Honeypot
-- **Fake sensitive endpoints** — `/.env`, `/wp-login.php`, `/phpmyadmin/`, `/admin/`
-- **Realistic responses** — serves plausible content to keep attackers engaged
-- **Attack detection** — SQLi, XSS, path traversal, webshell upload attempts flagged
-- **Credential harvest logging** — captures submitted login attempts
-
-### AI Threat Profiling
-- **Actor classification** — script kiddie, APT, ransomware operator, botnet, security researcher
-- **TTP chain reconstruction** — what did they try, in what order, what was the goal
-- **MITRE ATT&CK mapping** — automatic technique tagging from observed behavior
-- **Threat level scoring** — per-session risk assessment
-
----
-
-## What Gets Captured
-
-| Data Point | SSH | HTTP |
-|---|---|---|
-| Source IP + port | ✅ | ✅ |
-| Credentials attempted | ✅ | ✅ |
-| Commands executed | ✅ | — |
-| HTTP paths requested | — | ✅ |
-| User-Agent | — | ✅ |
-| POST body / form data | — | ✅ |
-| Timestamps | ✅ | ✅ |
-| Session duration | ✅ | — |
-
----
-
-## Fake Filesystem Responses
-
-The SSH honeypot responds realistically to 30+ common commands:
+## Instalación
 
 ```bash
-$ ls /etc
-passwd shadow group hosts hostname resolv.conf ssh/ crontab ...
-
-$ cat /etc/passwd
-root:x:0:0:root:/root:/bin/bash
-daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
-...
-
-$ ps aux
-USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-root         1  0.0  0.1  168940  9124 ?        Ss   08:12   0:01 /sbin/init
-...
-
-$ ifconfig
-eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
-      inet 10.0.0.42  netmask 255.255.255.0  broadcast 10.0.0.255
-```
-
----
-
-## Installation
-
-```bash
-git clone https://github.com/jmsdev83/honeygrid
 cd honeygrid
+python -m venv .venv
+source .venv/Scripts/activate      # Windows: .venv\Scripts\activate
 pip install -e .
 
-cp .env.example .env
-# Add GEMINI_API_KEY for AI profiling (optional)
+cp .env.example .env   # opcional, solo si vas a usar GEMINI_API_KEY
 ```
 
-### Requirements
+Instalación verificada localmente: `pip install -e .` resuelve sin conflictos (asyncssh, aiohttp, typer, rich, jinja2, geoip2, google-generativeai).
 
-- Python 3.11+
-- `asyncssh` for SSH server
-- Ports 22/2222 for SSH (run as root or set `CAP_NET_BIND_SERVICE` for port 22)
-
----
-
-## Usage
+## Uso
 
 ```bash
-# Start both honeypots
+# Levantar ambos honeypots en puertos no privilegiados
 honeygrid run --ssh-port 2222 --http-port 8080
 
-# Start with AI profiling enabled
-honeygrid run --ssh-port 2222 --http-port 8080 --ai
+# Solo SSH, o solo HTTP
+honeygrid run --no-http --ssh-port 2222
+honeygrid run --no-ssh --http-port 8080
 
-# View captured sessions
-honeygrid sessions
+# Conectarse de verdad (probado en este repo, funciona con cualquier user/pass)
+ssh -p 2222 localhost
+curl http://localhost:8080/
+curl http://localhost:8080/.env
 
-# View specific session detail
-honeygrid sessions --id <session_id>
+# Ver sesiones capturadas (con el honeypot corriendo o después de pararlo)
+honeygrid sessions --log honeygrid_sessions.json --last 20 --protocol ssh
 
-# Live statistics
-honeygrid stats
+# Estadísticas agregadas: top usuarios, passwords, comandos, paths, IPs
+honeygrid stats --log honeygrid_sessions.json
 
-# Generate HTML report
-honeygrid report --output honeygrid-report.html
+# Generar reporte HTML con perfilado de IA (necesita GEMINI_API_KEY)
+honeygrid report --log honeygrid_sessions.json -o reporte.html
 
-# Demo mode (synthetic attack simulation)
+# Reporte sin IA (no necesita API key)
+honeygrid report --log honeygrid_sessions.json -o reporte.html --no-ai
+
+# Probar todo el flujo sin exponer nada — inyecta sesiones sintéticas
 honeygrid demo
+honeygrid sessions --log honeygrid_demo.json
 ```
 
----
+Verificado en este repo de punta a punta contra la instancia real: `honeygrid run --ssh-port 12222 --http-port 18080` acepta conexiones SSH reales (`ssh -p 12222 -o PreferredAuthentications=password localhost`) con cualquier usuario/contraseña, ejecuta comandos (`whoami`, `cat /etc/passwd`) devolviendo la salida falsa esperada, y responde por HTTP en `/`, `/.env` y `/wp-login.php` con contenido señuelo. Cada conexión quedó registrada correctamente en el JSON de sesiones con MITRE techniques y threat level.
 
-## Architecture
-
-```
-honeygrid run
-      │
-      ├─► SSHHoneypot (asyncssh)
-      │      ├── Accept all credentials
-      │      ├── Spawn fake shell session
-      │      ├── fake_fs.py → realistic command responses
-      │      ├── Record every keystroke + command
-      │      └── Classify threat level on disconnect
-      │
-      ├─► HTTPHoneypot (aiohttp)
-      │      ├── Serve fake /.env, /admin/, /wp-login.php
-      │      ├── Detect SQLi / XSS / path traversal
-      │      ├── Log all requests + POST bodies
-      │      └── Classify attack type
-      │
-      └─► SessionStore
-             ├── asyncio.Lock — thread-safe
-             ├── JSON persistence every update
-             └─► GeminiProfiler → actor type + MITRE + profile
-```
-
----
-
-## Threat Levels
-
-| Level | Indicators |
-|---|---|
-| 🔴 **CRITICAL** | Data exfiltration commands, backdoor installation, cron/service persistence |
-| 🟠 **HIGH** | Crypto mining setup, SSH key injection, reverse shell attempts |
-| 🟡 **MEDIUM** | Reconnaissance commands (whoami, uname, ps, ifconfig) |
-| 🔵 **LOW** | Basic login + single command |
-| ⚪ **INFO** | Login only, no commands |
-
----
-
-## Project Structure
+## Estructura del proyecto
 
 ```
 honeygrid/
-├── honeygrid/
-│   ├── protocols/
-│   │   ├── ssh_honey.py        # asyncssh SSH honeypot server
-│   │   ├── http_honey.py       # aiohttp HTTP honeypot
-│   │   └── fake_fs.py          # Fake Debian filesystem responses
-│   ├── capture/
-│   │   └── session_store.py    # Thread-safe session storage + JSON persistence
-│   ├── core/
-│   │   ├── orchestrator.py     # HoneyGridConfig + run() entrypoint
-│   │   └── ai_profiler.py      # Gemini threat actor profiling
-│   ├── types/
-│   │   └── events.py           # AttackerSession, AuthAttempt, CommandEntry
-│   ├── report/
-│   │   ├── generator.py
-│   │   └── template.html       # Top attackers, creds, commands, IP map
-│   └── cli/
-│       └── main.py
-└── pyproject.toml
+├── pyproject.toml
+├── .env.example
+└── honeygrid/
+    ├── types/events.py           # AttackerSession, AuthAttempt, CommandEntry, HttpRequest
+    ├── protocols/
+    │   ├── ssh_honey.py           # servidor SSH (asyncssh) + clasificación de amenaza
+    │   ├── http_honey.py          # servidor HTTP (aiohttp) + rutas trampa
+    │   └── fake_fs.py             # respuestas falsas por comando (ls, cat, ps, wget...)
+    ├── capture/session_store.py  # store en memoria + persistencia JSON, thread-safe
+    ├── core/
+    │   ├── orchestrator.py       # arranca SSH+HTTP concurrentes, shutdown prolijo
+    │   └── ai_profiler.py        # perfilado de atacante con Gemini
+    ├── report/
+    │   ├── generator.py           # HTML (Jinja2) + PDF (WeasyPrint opcional)
+    │   └── template.html
+    └── cli/main.py                # comandos: run, sessions, stats, report, demo
 ```
 
----
+## Aviso legal
 
-## Environment Variables
-
-```env
-GEMINI_API_KEY=                   # AI threat actor profiling (optional)
-HONEYGRID_SSH_PORT=2222
-HONEYGRID_HTTP_PORT=8080
-HONEYGRID_DATA_DIR=./honeygrid-data
-```
-
----
-
-## Portfolio
-
-| # | Category | Project | Status |
-|---|---|---|---|
-| P-01 | Offensive | ReconAI — Recon Orchestrator | ✅ |
-| P-02 | Offensive | WebHunter — OWASP Top 10 Scanner | ✅ |
-| P-03 | Offensive | PhishSim — Red Team Phishing | ✅ |
-| D-01 | Defensive | SOC-Lite — AI SIEM | ✅ |
-| D-02 | Defensive | ThreatFeed — CTI Aggregator | ✅ |
-| D-03 | Defensive | **HoneyGrid** ← you are here | ✅ |
-| F-01 | Forensics | DFIR-Auto — Forensic Triage | ✅ |
-| F-02 | Forensics | MalwareScope — Malware Analyzer | ✅ |
-| F-03 | Forensics | PCAPForge — Network Forensics | ✅ |
-
----
+Proyecto educativo / de portfolio, pensado para correr en un laboratorio controlado o en un segmento de red propio bajo monitoreo (VM aislada, red interna, honeypot detrás de tu propio firewall) — **no** para exponerlo directamente a internet o usarlo contra atacantes reales sin la revisión legal y operativa correspondiente (aislamiento de red, límites de responsabilidad, retención de datos capturados). Cualquier IP o credencial que capture es de terceros no identificados: tratala como dato sensible y no la publiques sin anonimizar.
 
 <div align="center">
 
