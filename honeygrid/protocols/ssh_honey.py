@@ -122,7 +122,12 @@ if ASYNCSSH_AVAILABLE:
                 method="password",
             )
             self._session.auth_attempts.append(attempt)
-            log.info("SSH auth: %s / %s from %s", username, password, self._session.source_ip)
+            # La contraseña queda en AuthAttempt (eso es lo que estudia el honeypot);
+            # en el log general solo va el largo, para no esparcirla en texto plano.
+            log.info(
+                "SSH auth: user=%s from %s (password: %d chars)",
+                username, self._session.source_ip, len(password),
+            )
             return True             # Accept all credentials
 
         def validate_public_key(
